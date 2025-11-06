@@ -11,10 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'avatar')) {
-                $table->dropColumn('avatar');
-            }
+        Schema::create('sujets', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('projet_id')->constrained('projets')->onDelete('cascade');
+            $table->string('titre_sujet');
+            $table->text('description')->nullable();
+            $table->timestamps();
         });
     }
 
@@ -23,9 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('avatar')->nullable()->after('role');
-        });
+        Schema::dropIfExists('sujets');
     }
 };
-

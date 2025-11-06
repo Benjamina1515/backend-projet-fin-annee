@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ProfController;
 use App\Http\Controllers\EtudiantController;
+use App\Http\Controllers\ProjetController;
 use Illuminate\Support\Facades\Route;
 
 // Routes d'authentification
@@ -33,5 +34,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/etudiants/{id}', [EtudiantController::class, 'update']);
     Route::post('/etudiants/{id}', [EtudiantController::class, 'update']); // Pour FormData avec _method=PUT
     Route::delete('/etudiants/{id}', [EtudiantController::class, 'destroy']);
+    
+    // Routes pour les projets (Prof uniquement)
+    Route::get('/projets', [ProjetController::class, 'index']);
+    Route::post('/projets', [ProjetController::class, 'store']);
+    Route::get('/projets/{id}', [ProjetController::class, 'show']);
+    Route::post('/sujets', [ProjetController::class, 'storeSujet']);
+    Route::post('/projets/{id}/repartition', [ProjetController::class, 'repartirEtudiants']);
 });
 

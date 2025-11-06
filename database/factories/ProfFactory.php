@@ -49,7 +49,7 @@ class ProfFactory extends Factory
         ];
 
         return [
-            'matricule' => 'PROF' . fake()->unique()->numberBetween(2020, 2025) . str_pad(fake()->numberBetween(1, 999), 3, '0', STR_PAD_LEFT),
+            'matricule' => 'PROF' . fake()->unique()->numberBetween(2020001, 2025999),
             'specialite' => fake()->randomElement($specialites),
             'grade' => fake()->randomElement($grades),
             'avatar' => null,

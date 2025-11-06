@@ -52,7 +52,7 @@ class EtudiantFactory extends Factory
         ];
 
         return [
-            'matricule' => 'ETU' . fake()->unique()->numberBetween(2020, 2025) . str_pad(fake()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
+            'matricule' => 'ETU' . fake()->unique()->numberBetween(2020001, 2025999),
             'filiere' => fake()->randomElement($filieres),
             'niveau' => fake()->randomElement($niveaux),
             'avatar' => null,
