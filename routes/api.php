@@ -2,9 +2,12 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\ProfController;
+use App\Http\Controllers\EtudiantController;
 use Illuminate\Support\Facades\Route;
 
 // Routes d'authentification
+Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::get('/auth/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
@@ -18,5 +21,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::post('/users/{id}', [UserController::class, 'update']); // Pour FormData avec _method=PUT
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
+    
+    // Routes pour les professeurs (Admin uniquement)
+    Route::post('/profs', [ProfController::class, 'store']);
+    Route::put('/profs/{id}', [ProfController::class, 'update']);
+    Route::post('/profs/{id}', [ProfController::class, 'update']); // Pour FormData avec _method=PUT
+    Route::delete('/profs/{id}', [ProfController::class, 'destroy']);
+    
+    // Routes pour les étudiants (Admin uniquement)
+    Route::post('/etudiants', [EtudiantController::class, 'store']);
+    Route::put('/etudiants/{id}', [EtudiantController::class, 'update']);
+    Route::post('/etudiants/{id}', [EtudiantController::class, 'update']); // Pour FormData avec _method=PUT
+    Route::delete('/etudiants/{id}', [EtudiantController::class, 'destroy']);
 });
 
