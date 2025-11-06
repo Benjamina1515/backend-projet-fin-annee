@@ -39,7 +39,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/projets', [ProjetController::class, 'index']);
     Route::post('/projets', [ProjetController::class, 'store']);
     Route::get('/projets/{id}', [ProjetController::class, 'show']);
+    Route::put('/projets/{id}', [ProjetController::class, 'update']);
+    Route::delete('/projets/{id}', [ProjetController::class, 'destroy']);
     Route::post('/sujets', [ProjetController::class, 'storeSujet']);
+    Route::put('/sujets/{id}', [ProjetController::class, 'updateSujet']);
     Route::post('/projets/{id}/repartition', [ProjetController::class, 'repartirEtudiants']);
 });
 

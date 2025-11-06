@@ -285,6 +285,116 @@ class ProjetController extends Controller
     }
 
     /**
+     * Mettre à jour un projet
+     */
+    public function update(Request $request, $id)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        // Vérifier que le projet appartient au professeur
+        $projet = Projet::where('prof_id', $prof->id)->find($id);
+
+        if (!$projet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Projet non trouvé ou accès non autorisé.',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'titre' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'nb_par_groupe' => 'required|integer|min:1',
+            'niveaux' => 'required|array|min:1',
+            'niveaux.*' => 'required|string|in:L1,L2,L3,M1,M2',
+            'date_debut' => 'required|date',
+            'date_fin' => 'required|date|after_or_equal:date_debut',
+        ]);
+
+        $projet->update([
+            'titre' => $validated['titre'],
+            'description' => $validated['description'] ?? null,
+            'nb_par_groupe' => $validated['nb_par_groupe'],
+            'niveaux' => $validated['niveaux'],
+            'date_debut' => $validated['date_debut'],
+            'date_fin' => $validated['date_fin'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Projet mis à jour avec succès.',
+            'projet' => [
+                'id' => $projet->id,
+                'titre' => $projet->titre ?? '',
+                'description' => $projet->description ?? null,
+                'nb_par_groupe' => (int) ($projet->nb_par_groupe ?? 0),
+                'niveaux' => is_array($projet->niveaux) ? $projet->niveaux : [],
+                'date_debut' => $projet->date_debut ? $projet->date_debut->format('Y-m-d') : null,
+                'date_fin' => $projet->date_fin ? $projet->date_fin->format('Y-m-d') : null,
+                'date_creation' => $projet->date_creation ? $projet->date_creation->format('Y-m-d H:i:s') : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Supprimer un projet
+     */
+    public function destroy(Request $request, $id)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        // Vérifier que le projet appartient au professeur
+        $projet = Projet::where('prof_id', $prof->id)->find($id);
+
+        if (!$projet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Projet non trouvé ou accès non autorisé.',
+            ], 404);
+        }
+
+        // Supprimer le projet (les sujets et groupes seront supprimés en cascade grâce aux contraintes de clé étrangère)
+        $projet->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Projet supprimé avec succès.',
+        ]);
+    }
+
+    /**
      * Ajouter un sujet (sous-projet) à un projet
      */
     public function storeSujet(Request $request)
@@ -339,6 +449,69 @@ class ProjetController extends Controller
                 'description' => $sujet->description,
             ],
         ], 201);
+    }
+
+    /**
+     * Mettre à jour un sujet (sous-projet)
+     */
+    public function updateSujet(Request $request, $id)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'titre_sujet' => 'required|string|max:255',
+            'description' => 'nullable|string',
+        ]);
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        // Récupérer le sujet avec son projet
+        $sujet = Sujet::with('projet')->find($id);
+
+        if (!$sujet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sujet non trouvé.',
+            ], 404);
+        }
+
+        // Vérifier que le projet appartient au professeur
+        if ($sujet->projet->prof_id !== $prof->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $sujet->update([
+            'titre_sujet' => $validated['titre_sujet'],
+            'description' => $validated['description'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Sujet mis à jour avec succès.',
+            'sujet' => [
+                'id' => $sujet->id,
+                'projet_id' => $sujet->projet_id,
+                'titre_sujet' => $sujet->titre_sujet,
+                'description' => $sujet->description,
+            ],
+        ]);
     }
 
     /**
