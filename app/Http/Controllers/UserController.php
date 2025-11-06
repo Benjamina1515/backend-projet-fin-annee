@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -31,6 +32,7 @@ class UserController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'avatar' => $user->avatar,
+                'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
             ];
@@ -73,6 +75,7 @@ class UserController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'avatar' => $user->avatar,
+                'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
             ],
@@ -92,20 +95,29 @@ class UserController extends Controller
             ], 403);
         }
 
-        $request->validate([
+        $validated = $request->validate([
             'nom' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
             'role' => ['required', Rule::in(['admin', 'prof', 'etudiant'])],
-            'avatar' => 'nullable|string|max:255',
+            'avatar' => 'nullable|image|max:15360',
         ]);
 
+        if ($request->hasFile('avatar')) {
+            $file = $request->file('avatar');
+            $originalName = $file->getClientOriginalName();
+            // Stocker directement dans storage/app/public/ (pas dans images/)
+            $filePath = $file->storeAs('', $originalName, 'public');
+            // Stocker seulement le nom du fichier dans la base de données
+            $validated['avatar'] = $originalName;
+        }
+
         $user = User::create([
-            'name' => $request->nom, // Le front-end envoie "nom"
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'role' => $request->role,
-            'avatar' => $request->avatar ?? null,
+            'name' => $validated['nom'], // Le front-end envoie "nom"
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+            'role' => $validated['role'],
+            'avatar' => $validated['avatar'] ?? null,
         ]);
 
         return response()->json([
@@ -118,6 +130,7 @@ class UserController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'avatar' => $user->avatar,
+                'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
             ],
         ], 201);
     }
@@ -144,36 +157,52 @@ class UserController extends Controller
             ], 404);
         }
 
-        $request->validate([
+        $validated = $request->validate([
             'nom' => 'sometimes|string|max:255',
             'name' => 'sometimes|string|max:255',
             'email' => ['sometimes', 'email', Rule::unique('users', 'email')->ignore($id)],
             'password' => 'sometimes|string|min:6',
             'role' => ['sometimes', Rule::in(['admin', 'prof', 'etudiant'])],
-            'avatar' => 'nullable|string|max:255',
+            'avatar' => 'nullable|image|max:15360',
         ]);
+
+        if ($request->hasFile('avatar')) {
+            $file = $request->file('avatar');
+            $originalName = $file->getClientOriginalName();
+            
+            // Supprimer l'ancien fichier s'il existe
+            if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
+                Storage::disk('public')->delete($user->avatar);
+            }
+            
+            // Stocker directement dans storage/app/public/ (pas dans images/)
+            $filePath = $file->storeAs('', $originalName, 'public');
+            // Stocker seulement le nom du fichier dans la base de données
+            $validated['avatar'] = $originalName;
+        }
 
         // Mettre à jour les champs
         if ($request->has('nom')) {
-            $user->name = $request->nom;
+            $user->name = $validated['nom'];
         } elseif ($request->has('name')) {
-            $user->name = $request->name;
+            $user->name = $validated['name'];
         }
 
         if ($request->has('email')) {
-            $user->email = $request->email;
+            $user->email = $validated['email'];
         }
 
         if ($request->has('password')) {
-            $user->password = Hash::make($request->password);
+            $user->password = Hash::make($validated['password']);
         }
 
         if ($request->has('role')) {
-            $user->role = $request->role;
+            $user->role = $validated['role'];
         }
 
-        if ($request->has('avatar')) {
-            $user->avatar = $request->avatar;
+        // Mettre à jour l'avatar si un nouveau fichier a été uploadé
+        if (isset($validated['avatar'])) {
+            $user->avatar = $validated['avatar'];
         }
 
         $user->save();
@@ -188,6 +217,7 @@ class UserController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'avatar' => $user->avatar,
+                'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
             ],
         ]);
     }
