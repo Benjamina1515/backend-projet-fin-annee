@@ -1160,4 +1160,89 @@ class ProjetController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Récupérer les projets de l'étudiant connecté avec ses groupes et coéquipiers
+     */
+    public function getStudentProjects(Request $request)
+    {
+        // Vérifier que l'utilisateur est un étudiant
+        if ($request->user()->role !== 'etudiant') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé. Seuls les étudiants peuvent accéder à cette ressource.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $etudiant = $user->etudiant;
+
+        if (!$etudiant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil étudiant non trouvé.',
+            ], 404);
+        }
+
+        // Récupérer les groupes de l'étudiant avec leurs projets, sujets et autres étudiants
+        $groupes = $etudiant->groupes()
+            ->with([
+                'projet',
+                'sujet',
+                'etudiants.user' => function ($query) {
+                    $query->select('id', 'name', 'email');
+                }
+            ])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Grouper par projet et structurer les données
+        $projetsData = [];
+        foreach ($groupes as $groupe) {
+            if (!$groupe->projet) continue;
+
+            $projetId = $groupe->projet->id;
+            
+            // Récupérer les autres étudiants du groupe (exclure l'étudiant actuel)
+            $coequipiers = $groupe->etudiants
+                ->filter(function ($et) use ($etudiant) {
+                    return $et->id !== $etudiant->id;
+                })
+                ->map(function ($et) {
+                    return [
+                        'id' => $et->id,
+                        'nom' => $et->user->name ?? null,
+                        'matricule' => $et->matricule ?? null,
+                        'email' => $et->user->email ?? null,
+                    ];
+                })
+                ->values();
+
+            // Si le projet n'existe pas encore dans le tableau, l'ajouter
+            if (!isset($projetsData[$projetId])) {
+                $projetsData[$projetId] = [
+                    'id' => $groupe->projet->id,
+                    'titre' => $groupe->projet->titre ?? '',
+                    'description' => $groupe->projet->description ?? null,
+                    'date_debut' => $groupe->projet->date_debut ? $groupe->projet->date_debut->format('Y-m-d') : null,
+                    'date_fin' => $groupe->projet->date_fin ? $groupe->projet->date_fin->format('Y-m-d') : null,
+                    'groupe' => [
+                        'id' => $groupe->id,
+                        'numero_groupe' => $groupe->numero_groupe,
+                        'sujet' => $groupe->sujet ? [
+                            'id' => $groupe->sujet->id,
+                            'titre_sujet' => $groupe->sujet->titre_sujet ?? '',
+                            'description' => $groupe->sujet->description ?? null,
+                        ] : null,
+                        'coequipiers' => $coequipiers->toArray(),
+                    ],
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'projets' => array_values($projetsData),
+        ]);
+    }
 }

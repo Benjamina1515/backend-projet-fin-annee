@@ -48,5 +48,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/sujets/{id}', [ProjetController::class, 'deleteSujet']);
     Route::post('/projets/{id}/repartition', [ProjetController::class, 'repartirEtudiants']);
     Route::post('/projets/{id}/reassigner-sujets', [ProjetController::class, 'reassignerSujetsAuxGroupes']);
+    // Route pour étudiant : voir ses projets
+    Route::get('/student/projets', [ProjetController::class, 'getStudentProjects']);
 });
 
