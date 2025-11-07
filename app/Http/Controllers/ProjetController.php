@@ -1187,7 +1187,11 @@ class ProjetController extends Controller
         // Récupérer les groupes de l'étudiant avec leurs projets, sujets et autres étudiants
         $groupes = $etudiant->groupes()
             ->with([
-                'projet',
+                'projet' => function ($query) {
+                    $query->with(['prof.user' => function ($q) {
+                        $q->select('id', 'name', 'email');
+                    }]);
+                },
                 'sujet',
                 'etudiants.user' => function ($query) {
                     $query->select('id', 'name', 'email');
@@ -1220,12 +1224,28 @@ class ProjetController extends Controller
 
             // Si le projet n'existe pas encore dans le tableau, l'ajouter
             if (!isset($projetsData[$projetId])) {
+                // S'assurer que le projet est rechargé avec la relation prof
+                $groupe->projet->loadMissing('prof.user');
+                
+                $profNom = null;
+                $profEmail = null;
+                
+                if ($groupe->projet->prof && $groupe->projet->prof->user) {
+                    $profNom = $groupe->projet->prof->user->name;
+                    $profEmail = $groupe->projet->prof->user->email;
+                }
+                
                 $projetsData[$projetId] = [
                     'id' => $groupe->projet->id,
                     'titre' => $groupe->projet->titre ?? '',
                     'description' => $groupe->projet->description ?? null,
                     'date_debut' => $groupe->projet->date_debut ? $groupe->projet->date_debut->format('Y-m-d') : null,
                     'date_fin' => $groupe->projet->date_fin ? $groupe->projet->date_fin->format('Y-m-d') : null,
+                    'prof' => $profNom ? [
+                        'id' => $groupe->projet->prof->id,
+                        'nom' => $profNom,
+                        'email' => $profEmail,
+                    ] : null,
                     'groupe' => [
                         'id' => $groupe->id,
                         'numero_groupe' => $groupe->numero_groupe,
