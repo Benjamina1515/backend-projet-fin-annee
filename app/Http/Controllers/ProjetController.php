@@ -327,29 +327,148 @@ class ProjetController extends Controller
             'date_fin' => 'required|date|after_or_equal:date_debut',
         ]);
 
-        $projet->update([
-            'titre' => $validated['titre'],
-            'description' => $validated['description'] ?? null,
-            'nb_par_groupe' => $validated['nb_par_groupe'],
-            'niveaux' => $validated['niveaux'],
-            'date_debut' => $validated['date_debut'],
-            'date_fin' => $validated['date_fin'],
-        ]);
+        // Vérifier si nb_par_groupe ou niveaux ont changé
+        $nbParGroupeChanged = $projet->nb_par_groupe != $validated['nb_par_groupe'];
+        $niveauxChanged = json_encode($projet->niveaux ?? []) !== json_encode($validated['niveaux']);
+        $shouldRecreateGroups = ($nbParGroupeChanged || $niveauxChanged) && $projet->groupes()->count() > 0;
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Projet mis à jour avec succès.',
-            'projet' => [
-                'id' => $projet->id,
-                'titre' => $projet->titre ?? '',
-                'description' => $projet->description ?? null,
-                'nb_par_groupe' => (int) ($projet->nb_par_groupe ?? 0),
+        DB::beginTransaction();
+
+        try {
+            // Si nb_par_groupe ou niveaux ont changé et qu'il y a des groupes, les supprimer
+            if ($shouldRecreateGroups) {
+                $projet->groupes()->delete();
+            }
+
+            $projet->update([
+                'titre' => $validated['titre'],
+                'description' => $validated['description'] ?? null,
+                'nb_par_groupe' => $validated['nb_par_groupe'],
+                'niveaux' => $validated['niveaux'],
+                'date_debut' => $validated['date_debut'],
+                'date_fin' => $validated['date_fin'],
+            ]);
+
+            // Si on a supprimé les groupes et qu'il y a des sujets, recréer la répartition
+            if ($shouldRecreateGroups) {
+                $projet->refresh();
+                $projet->load('sujets');
+                
+                if ($projet->sujets->isNotEmpty()) {
+                    // Récupérer les étudiants selon les nouveaux niveaux
+                    $etudiants = Etudiant::with('user')
+                        ->whereIn('niveau', $validated['niveaux'])
+                        ->get();
+
+                    if ($etudiants->isNotEmpty()) {
+                        // Grouper les étudiants par niveau et mélanger
+                        $etudiantsParNiveau = $etudiants->groupBy('niveau')->map(function ($groupeEtudiants) {
+                            return collect($groupeEtudiants)->shuffle();
+                        });
+
+                        $sujets = $projet->sujets->shuffle();
+                        $numeroGroupe = 1;
+                        $nbParGroupe = $validated['nb_par_groupe'];
+                        $sujetIndex = 0;
+
+                        foreach ($etudiantsParNiveau as $niveau => $etudiantsNiveau) {
+                            $nbEtudiantsNiveau = $etudiantsNiveau->count();
+                            
+                            for ($i = 0; $i < $nbEtudiantsNiveau; $i += $nbParGroupe) {
+                                $groupeEtudiants = $etudiantsNiveau->slice($i, $nbParGroupe);
+                                $sujet = $sujets[$sujetIndex % $sujets->count()];
+                                $sujetIndex++;
+
+                                $groupe = Groupe::create([
+                                    'projet_id' => $projet->id,
+                                    'sujet_id' => $sujet->id,
+                                    'numero_groupe' => $numeroGroupe,
+                                ]);
+
+                                foreach ($groupeEtudiants as $etudiant) {
+                                    $groupe->etudiants()->attach($etudiant->id);
+                                }
+
+                                $numeroGroupe++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            DB::commit();
+
+            // Recharger le projet avec toutes les relations
+            $projet->refresh();
+            $projet->load(['sujets', 'groupes.sujet', 'groupes.etudiants.user']);
+
+            // Préparer la réponse
+            $sujetsCollection = $projet->sujets ?? collect();
+            $groupesCollection = $projet->groupes ?? collect();
+
+            return response()->json([
+                'success' => true,
+                'message' => $shouldRecreateGroups 
+                    ? 'Projet mis à jour avec succès. Les groupes ont été recréés selon les nouveaux paramètres.'
+                    : 'Projet mis à jour avec succès.',
+                'projet' => [
+                    'id' => $projet->id,
+                    'titre' => $projet->titre ?? '',
+                    'description' => $projet->description ?? null,
+                    'nb_par_groupe' => (int) ($projet->nb_par_groupe ?? 0),
                 'niveaux' => is_array($projet->niveaux) ? $projet->niveaux : [],
                 'date_debut' => $projet->date_debut ? $projet->date_debut->format('Y-m-d') : null,
                 'date_fin' => $projet->date_fin ? $projet->date_fin->format('Y-m-d') : null,
                 'date_creation' => $projet->date_creation ? $projet->date_creation->format('Y-m-d H:i:s') : null,
+                'nb_groupes' => $groupesCollection->count(),
+                'sujets' => $sujetsCollection->map(function ($sujet) {
+                    return [
+                        'id' => $sujet->id,
+                        'titre_sujet' => $sujet->titre_sujet ?? '',
+                        'description' => $sujet->description ?? null,
+                    ];
+                })->values(),
+                'groupes' => $groupesCollection->map(function ($groupe) {
+                    $etudiants = $groupe->etudiants ?? collect();
+                    $niveauGroupe = null;
+                    if ($etudiants->isNotEmpty()) {
+                        $niveauGroupe = $etudiants->first()->niveau ?? null;
+                    }
+                    $etudiantsCollection = $etudiants ?? collect();
+                    
+                    return [
+                        'id' => $groupe->id,
+                        'numero_groupe' => (int) ($groupe->numero_groupe ?? 0),
+                        'niveau' => $niveauGroupe,
+                        'sujet' => $groupe->sujet ? [
+                            'id' => $groupe->sujet->id,
+                            'titre_sujet' => $groupe->sujet->titre_sujet ?? '',
+                            'description' => $groupe->sujet->description ?? null,
+                        ] : null,
+                        'etudiants' => $etudiantsCollection->map(function ($etudiant) {
+                            return [
+                                'id' => $etudiant->id,
+                                'matricule' => $etudiant->matricule ?? '',
+                                'nom' => ($etudiant->user->name ?? null),
+                                'email' => ($etudiant->user->email ?? null),
+                                'filiere' => $etudiant->filiere ?? null,
+                                'niveau' => $etudiant->niveau ?? null,
+                            ];
+                        })->values(),
+                        'nb_etudiants' => $etudiantsCollection->count(),
+                    ];
+                })->values(),
             ],
         ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erreur lors de la mise à jour du projet: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la mise à jour du projet: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
