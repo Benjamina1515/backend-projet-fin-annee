@@ -1207,18 +1207,27 @@ class ProjetController extends Controller
 
             $projetId = $groupe->projet->id;
             
-            // Récupérer les autres étudiants du groupe (exclure l'étudiant actuel)
-            $coequipiers = $groupe->etudiants
-                ->filter(function ($et) use ($etudiant) {
-                    return $et->id !== $etudiant->id;
-                })
-                ->map(function ($et) {
+            // Récupérer tous les étudiants du groupe (y compris l'étudiant actuel)
+            $membresGroupe = $groupe->etudiants
+                ->map(function ($et) use ($etudiant) {
                     return [
                         'id' => $et->id,
                         'nom' => $et->user->name ?? null,
                         'matricule' => $et->matricule ?? null,
                         'email' => $et->user->email ?? null,
+                        'isCurrentUser' => $et->id === $etudiant->id,
                     ];
+                })
+                ->values();
+            
+            // Coéquipiers (exclure l'étudiant actuel)
+            $coequipiers = $membresGroupe
+                ->filter(function ($et) {
+                    return !$et['isCurrentUser'];
+                })
+                ->map(function ($et) {
+                    unset($et['isCurrentUser']);
+                    return $et;
                 })
                 ->values();
 
@@ -1255,6 +1264,10 @@ class ProjetController extends Controller
                             'description' => $groupe->sujet->description ?? null,
                         ] : null,
                         'coequipiers' => $coequipiers->toArray(),
+                        'membres' => $membresGroupe->map(function ($m) {
+                            unset($m['isCurrentUser']);
+                            return $m;
+                        })->toArray(),
                     ],
                 ];
             }
