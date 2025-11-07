@@ -515,6 +515,106 @@ class ProjetController extends Controller
     }
 
     /**
+     * Supprimer un sujet (sous-projet)
+     */
+    public function deleteSujet(Request $request, $id)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        // Récupérer le sujet avec son projet
+        $sujet = Sujet::with('projet')->find($id);
+
+        if (!$sujet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sujet non trouvé.',
+            ], 404);
+        }
+
+        // Vérifier que le projet appartient au professeur
+        if ($sujet->projet->prof_id !== $prof->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $projet = $sujet->projet;
+        $projetId = $projet->id;
+
+        DB::beginTransaction();
+
+        try {
+            // Récupérer tous les groupes qui ont ce sujet assigné
+            $groupesAvecSujet = Groupe::where('projet_id', $projetId)
+                ->where('sujet_id', $sujet->id)
+                ->get();
+
+            // Supprimer le sujet
+            $sujet->delete();
+
+            // Si des groupes avaient ce sujet, réassigner un autre sujet
+            if ($groupesAvecSujet->isNotEmpty()) {
+                // Recharger le projet pour avoir les sujets restants
+                $projet->refresh();
+                $projet->load('sujets');
+                $sujetsRestants = $projet->sujets->shuffle(); // Mélanger pour une distribution aléatoire
+
+                if ($sujetsRestants->isNotEmpty()) {
+                    // Réassigner les sujets restants aux groupes de manière cyclique
+                    $sujetIndex = 0;
+                    foreach ($groupesAvecSujet as $groupe) {
+                        $nouveauSujet = $sujetsRestants[$sujetIndex % $sujetsRestants->count()];
+                        $sujetIndex++;
+                        
+                        $groupe->sujet_id = $nouveauSujet->id;
+                        $groupe->save();
+                    }
+                } else {
+                    // S'il n'y a plus de sujets, mettre à null
+                    foreach ($groupesAvecSujet as $groupe) {
+                        $groupe->sujet_id = null;
+                        $groupe->save();
+                    }
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $groupesAvecSujet->isNotEmpty() 
+                    ? 'Sujet supprimé avec succès. Les groupes ont été automatiquement réassignés à d\'autres sujets.'
+                    : 'Sujet supprimé avec succès.',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erreur lors de la suppression du sujet: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la suppression du sujet: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Répartition automatique des étudiants par groupe
      */
     public function repartirEtudiants(Request $request, $id)
@@ -538,7 +638,9 @@ class ProjetController extends Controller
         }
 
         $projet = Projet::where('prof_id', $prof->id)
-            ->with('sujets')
+            ->with(['sujets' => function($query) {
+                $query->orderBy('id');
+            }])
             ->find($id);
 
         if (!$projet) {
@@ -601,9 +703,22 @@ class ProjetController extends Controller
             // Supprimer les groupes existants (et leurs relations)
             $projet->groupes()->delete();
 
+            // Recharger les sujets pour s'assurer d'avoir tous les sujets (anciens et nouveaux)
+            $projet->refresh();
+            $sujets = $projet->sujets->shuffle(); // Mélanger les sujets pour une distribution aléatoire
+            
+            if ($sujets->isEmpty()) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Aucun sujet disponible pour la répartition.',
+                ], 400);
+            }
+
             // Créer les groupes et assigner les étudiants par niveau
             $numeroGroupe = 1;
             $nbParGroupe = $projet->nb_par_groupe;
+            $sujetIndex = 0; // Index pour parcourir les sujets de manière cyclique
 
             // Parcourir chaque niveau
             foreach ($etudiantsParNiveau as $niveau => $etudiantsNiveau) {
@@ -613,13 +728,15 @@ class ProjetController extends Controller
                 for ($i = 0; $i < $nbEtudiantsNiveau; $i += $nbParGroupe) {
                     $groupeEtudiants = $etudiantsNiveau->slice($i, $nbParGroupe);
                     
-                    // Sélectionner un sujet aléatoire pour ce groupe (peut être le même pour plusieurs groupes)
-                    $sujetAleatoire = $projet->sujets->random();
+                    // Sélectionner un sujet de manière cyclique pour distribuer équitablement tous les sujets
+                    // Cela garantit que tous les sujets (anciens et nouveaux) sont utilisés
+                    $sujet = $sujets[$sujetIndex % $sujets->count()];
+                    $sujetIndex++;
 
                     // Créer le groupe avec le niveau dans le numéro de groupe
                     $groupe = Groupe::create([
                         'projet_id' => $projet->id,
-                        'sujet_id' => $sujetAleatoire->id,
+                        'sujet_id' => $sujet->id,
                         'numero_groupe' => $numeroGroupe,
                     ]);
 
@@ -716,6 +833,168 @@ class ProjetController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la répartition: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Réassigner les sujets aux groupes existants (sans recréer les groupes)
+     */
+    public function reassignerSujetsAuxGroupes(Request $request, $id)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        $projet = Projet::where('prof_id', $prof->id)
+            ->with(['sujets', 'groupes'])
+            ->find($id);
+
+        if (!$projet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Projet non trouvé ou accès non autorisé.',
+            ], 404);
+        }
+
+        // Vérifier qu'il y a des sujets
+        if ($projet->sujets->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Veuillez d\'abord ajouter au moins un sujet au projet.',
+            ], 400);
+        }
+
+        // Vérifier qu'il y a des groupes existants
+        if ($projet->groupes->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Aucun groupe existant. Veuillez d\'abord créer des groupes avec la répartition initiale.',
+            ], 400);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            // Recharger les sujets pour s'assurer d'avoir tous les sujets (anciens et nouveaux)
+            $projet->refresh();
+            $sujets = $projet->sujets->shuffle(); // Mélanger les sujets pour une distribution aléatoire
+            
+            if ($sujets->isEmpty()) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Aucun sujet disponible pour la répartition.',
+                ], 400);
+            }
+
+            // Recharger les groupes existants
+            $projet->load('groupes');
+            $groupes = $projet->groupes;
+            
+            if ($groupes->isEmpty()) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Aucun groupe existant.',
+                ], 400);
+            }
+
+            // Réassigner les sujets aux groupes existants de manière cyclique
+            $sujetIndex = 0;
+            foreach ($groupes as $groupe) {
+                // Sélectionner un sujet de manière cyclique pour distribuer équitablement tous les sujets
+                $sujet = $sujets[$sujetIndex % $sujets->count()];
+                $sujetIndex++;
+                
+                // Mettre à jour le sujet du groupe
+                $groupe->sujet_id = $sujet->id;
+                $groupe->save();
+            }
+
+            DB::commit();
+
+            // Recharger le projet avec les nouvelles données
+            $projet->refresh();
+            $projet->load(['groupes.sujet', 'groupes.etudiants.user']);
+
+            // S'assurer que les relations sont des Collections après le refresh
+            $sujetsCollection = $projet->sujets ?? collect();
+            $groupesCollection = $projet->groupes ?? collect();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Sujets réassignés avec succès aux groupes existants.',
+                'projet' => [
+                    'id' => $projet->id,
+                    'titre' => $projet->titre ?? '',
+                    'description' => $projet->description ?? null,
+                    'nb_par_groupe' => (int) ($projet->nb_par_groupe ?? 0),
+                    'niveaux' => is_array($projet->niveaux) ? $projet->niveaux : [],
+                    'date_debut' => $projet->date_debut ? $projet->date_debut->format('Y-m-d') : null,
+                    'date_fin' => $projet->date_fin ? $projet->date_fin->format('Y-m-d') : null,
+                    'date_creation' => $projet->date_creation ? $projet->date_creation->format('Y-m-d H:i:s') : null,
+                    'nb_groupes' => $groupesCollection->count(),
+                    'sujets' => $sujetsCollection->map(function ($sujet) {
+                        return [
+                            'id' => $sujet->id,
+                            'titre_sujet' => $sujet->titre_sujet ?? '',
+                            'description' => $sujet->description ?? null,
+                        ];
+                    })->values(),
+                    'groupes' => $groupesCollection->map(function ($groupe) {
+                        $etudiants = $groupe->etudiants ?? collect();
+                        $niveauGroupe = null;
+                        if ($etudiants->isNotEmpty()) {
+                            $niveauGroupe = $etudiants->first()->niveau ?? null;
+                        }
+                        $etudiantsCollection = $etudiants ?? collect();
+                        
+                        return [
+                            'id' => $groupe->id,
+                            'numero_groupe' => (int) ($groupe->numero_groupe ?? 0),
+                            'niveau' => $niveauGroupe,
+                            'sujet' => $groupe->sujet ? [
+                                'id' => $groupe->sujet->id,
+                                'titre_sujet' => $groupe->sujet->titre_sujet ?? '',
+                                'description' => $groupe->sujet->description ?? null,
+                            ] : null,
+                            'etudiants' => $etudiantsCollection->map(function ($etudiant) {
+                                return [
+                                    'id' => $etudiant->id,
+                                    'matricule' => $etudiant->matricule ?? '',
+                                    'nom' => ($etudiant->user->name ?? null),
+                                    'email' => ($etudiant->user->email ?? null),
+                                    'filiere' => $etudiant->filiere ?? null,
+                                    'niveau' => $etudiant->niveau ?? null,
+                                ];
+                            })->values(),
+                            'nb_etudiants' => $etudiantsCollection->count(),
+                        ];
+                    })->values(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erreur lors de la réassignation des sujets: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la réassignation des sujets: ' . $e->getMessage(),
             ], 500);
         }
     }

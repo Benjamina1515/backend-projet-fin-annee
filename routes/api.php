@@ -43,6 +43,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/projets/{id}', [ProjetController::class, 'destroy']);
     Route::post('/sujets', [ProjetController::class, 'storeSujet']);
     Route::put('/sujets/{id}', [ProjetController::class, 'updateSujet']);
+    Route::delete('/sujets/{id}', [ProjetController::class, 'deleteSujet']);
     Route::post('/projets/{id}/repartition', [ProjetController::class, 'repartirEtudiants']);
+    Route::post('/projets/{id}/reassigner-sujets', [ProjetController::class, 'reassignerSujetsAuxGroupes']);
 });
 
