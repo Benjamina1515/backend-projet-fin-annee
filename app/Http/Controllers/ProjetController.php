@@ -14,6 +14,49 @@ use Illuminate\Support\Facades\Log;
 class ProjetController extends Controller
 {
     /**
+     * Liste de tous les projets (pour admin)
+     */
+    public function indexAll(Request $request)
+    {
+        // Vérifier que l'utilisateur est un admin
+        if ($request->user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé. Seuls les administrateurs peuvent accéder à cette ressource.',
+            ], 403);
+        }
+
+        $projets = Projet::with(['prof.user'])
+            ->withCount('groupes')
+            ->withCount('sujets')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'projets' => $projets->map(function ($projet) {
+                return [
+                    'id' => $projet->id,
+                    'titre' => $projet->titre ?? '',
+                    'description' => $projet->description ?? null,
+                    'nb_par_groupe' => (int) ($projet->nb_par_groupe ?? 0),
+                    'niveaux' => is_array($projet->niveaux) ? $projet->niveaux : [],
+                    'date_debut' => $projet->date_debut ? $projet->date_debut->format('Y-m-d') : null,
+                    'date_fin' => $projet->date_fin ? $projet->date_fin->format('Y-m-d') : null,
+                    'date_creation' => $projet->date_creation ? $projet->date_creation->format('Y-m-d H:i:s') : null,
+                    'nb_groupes' => $projet->groupes_count ?? 0,
+                    'nb_sujets' => $projet->sujets_count ?? 0,
+                    'prof' => $projet->prof && $projet->prof->user ? [
+                        'id' => $projet->prof->id,
+                        'nom' => $projet->prof->user->name ?? null,
+                        'email' => $projet->prof->user->email ?? null,
+                    ] : null,
+                ];
+            }),
+        ]);
+    }
+
+    /**
      * Liste des projets du professeur connecté
      */
     public function index(Request $request)

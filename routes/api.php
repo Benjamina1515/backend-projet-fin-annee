@@ -37,6 +37,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Routes pour les projets (Prof uniquement)
     Route::get('/projets', [ProjetController::class, 'index']);
+    // Route pour admin : voir tous les projets
+    Route::get('/admin/projets', [ProjetController::class, 'indexAll']);
     Route::post('/projets', [ProjetController::class, 'store']);
     Route::get('/projets/{id}', [ProjetController::class, 'show']);
     Route::put('/projets/{id}', [ProjetController::class, 'update']);
