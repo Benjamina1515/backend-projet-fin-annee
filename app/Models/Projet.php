@@ -60,4 +60,12 @@ class Projet extends Model
     {
         return $this->groupes()->count();
     }
+
+    /**
+     * Relation avec Taches
+     */
+    public function taches(): HasMany
+    {
+        return $this->hasMany(Tache::class);
+    }
 }

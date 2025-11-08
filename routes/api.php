@@ -5,6 +5,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\ProfController;
 use App\Http\Controllers\EtudiantController;
 use App\Http\Controllers\ProjetController;
+use App\Http\Controllers\TacheController;
 use Illuminate\Support\Facades\Route;
 
 // Routes d'authentification
@@ -50,5 +51,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/projets/{id}/reassigner-sujets', [ProjetController::class, 'reassignerSujetsAuxGroupes']);
     // Route pour étudiant : voir ses projets
     Route::get('/student/projets', [ProjetController::class, 'getStudentProjects']);
+    
+    // Routes pour les tâches (Étudiant uniquement)
+    Route::get('/student/taches', [TacheController::class, 'index']);
+    Route::get('/student/taches/stats', [TacheController::class, 'stats']);
+    Route::get('/student/taches/{id}', [TacheController::class, 'show']);
+    Route::post('/student/taches', [TacheController::class, 'store']);
+    Route::put('/student/taches/{id}', [TacheController::class, 'update']);
+    Route::patch('/student/taches/{id}/statut', [TacheController::class, 'updateStatus']);
+    Route::delete('/student/taches/{id}', [TacheController::class, 'destroy']);
 });
 
