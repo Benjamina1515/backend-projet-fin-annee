@@ -182,6 +182,78 @@ class AuthController extends Controller
     }
 
     /**
+     * Mettre à jour le profil de l'utilisateur connecté
+     */
+    public function updateMe(Request $request)
+    {
+        $user = $request->user();
+
+        // Validation commune
+        $validated = $request->validate([
+            'nom' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255',
+            'email' => ['nullable', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'avatar' => 'nullable|image|max:15360', // 15MB
+
+            // Étudiant
+            'matricule' => 'nullable|string|max:255',
+            'filiere' => 'nullable|string|max:255',
+            'niveau' => 'nullable|string|max:255',
+
+            // Prof
+            'specialite' => 'nullable|string|max:255',
+            'grade' => 'nullable|string|max:255',
+        ]);
+
+        // Mettre à jour l'utilisateur
+        $user->name = $validated['nom'] ?? $validated['name'] ?? $user->name;
+        $user->email = $validated['email'] ?? $user->email;
+        $user->save();
+
+        // Mise à jour selon le rôle pour les infos spécifiques + avatar
+        if ($user->role === 'etudiant') {
+            $etudiant = $user->etudiant ?: new Etudiant(['user_id' => $user->id]);
+            $etudiant->matricule = $validated['matricule'] ?? $etudiant->matricule;
+            $etudiant->filiere = $validated['filiere'] ?? $etudiant->filiere;
+            $etudiant->niveau = $validated['niveau'] ?? $etudiant->niveau;
+
+            if ($request->hasFile('avatar')) {
+                $file = $request->file('avatar');
+                $originalName = $file->getClientOriginalName();
+                $file->storeAs('', $originalName, 'public');
+                $etudiant->avatar = $originalName;
+            }
+            $etudiant->save();
+        } elseif ($user->role === 'prof') {
+            $prof = $user->prof ?: new Prof(['user_id' => $user->id]);
+            $prof->matricule = $validated['matricule'] ?? $prof->matricule;
+            $prof->specialite = $validated['specialite'] ?? $prof->specialite;
+            $prof->grade = $validated['grade'] ?? $prof->grade;
+
+            if ($request->hasFile('avatar')) {
+                $file = $request->file('avatar');
+                $originalName = $file->getClientOriginalName();
+                $file->storeAs('', $originalName, 'public');
+                $prof->avatar = $originalName;
+            }
+            $prof->save();
+        }
+
+        // Recharger les relations
+        if ($user->role === 'etudiant') {
+            $user->load('etudiant');
+        } elseif ($user->role === 'prof') {
+            $user->load('prof');
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil mis à jour',
+            'user' => $this->formatUserResponse($user),
+        ]);
+    }
+
+    /**
      * Formater la réponse utilisateur avec les informations spécifiques
      */
     private function formatUserResponse(User $user): array
