@@ -60,5 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/student/taches/{id}', [TacheController::class, 'update']);
     Route::patch('/student/taches/{id}/statut', [TacheController::class, 'updateStatus']);
     Route::delete('/student/taches/{id}', [TacheController::class, 'destroy']);
+    
+    // Routes pour les tâches des étudiants (Professeur uniquement)
+    Route::get('/professor/taches', [TacheController::class, 'getProfessorStudentTasks']);
 });
 

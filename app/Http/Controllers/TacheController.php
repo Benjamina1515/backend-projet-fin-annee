@@ -372,5 +372,99 @@ class TacheController extends Controller
             'stats' => $stats,
         ]);
     }
+
+    /**
+     * Récupérer toutes les tâches des étudiants encadrés par le professeur connecté
+     */
+    public function getProfessorStudentTasks(Request $request)
+    {
+        // Vérifier que l'utilisateur est un professeur
+        if ($request->user()->role !== 'prof') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé. Seuls les professeurs peuvent accéder à cette ressource.',
+            ], 403);
+        }
+
+        $user = $request->user();
+        $prof = $user->prof;
+
+        if (!$prof) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil professeur non trouvé.',
+            ], 404);
+        }
+
+        // Récupérer les IDs des projets du professeur
+        $projetIds = Projet::where('prof_id', $prof->id)->pluck('id');
+
+        if ($projetIds->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'taches' => [],
+            ]);
+        }
+
+        // Récupérer les tâches des étudiants qui sont dans les groupes de ces projets
+        $taches = Tache::whereIn('projet_id', $projetIds)
+            ->with([
+                'projet' => function ($query) {
+                    $query->select('id', 'titre');
+                },
+                'etudiant.user' => function ($query) {
+                    $query->select('id', 'name', 'email');
+                },
+                'etudiant.groupes' => function ($query) use ($projetIds) {
+                    $query->whereIn('projet_id', $projetIds)
+                        ->select('groupes.id', 'groupes.projet_id', 'groupes.numero_groupe');
+                },
+            ])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Enrichir les tâches avec les informations du groupe
+        $taches = $taches->map(function ($tache) {
+            // Trouver le groupe de l'étudiant pour ce projet spécifique
+            $groupe = null;
+            if ($tache->etudiant && $tache->etudiant->groupes) {
+                $groupe = $tache->etudiant->groupes
+                    ->where('projet_id', $tache->projet_id)
+                    ->first();
+            }
+
+            return [
+                'id' => $tache->id,
+                'nom' => $tache->nom,
+                'statut' => $tache->statut,
+                'priorite' => $tache->priorite,
+                'date_debut' => $tache->date_debut ? $tache->date_debut->format('Y-m-d') : null,
+                'date_fin' => $tache->date_fin ? $tache->date_fin->format('Y-m-d') : null,
+                'created_at' => $tache->created_at,
+                'updated_at' => $tache->updated_at,
+                'projet' => $tache->projet ? [
+                    'id' => $tache->projet->id,
+                    'titre' => $tache->projet->titre,
+                ] : null,
+                'etudiant' => $tache->etudiant ? [
+                    'id' => $tache->etudiant->id,
+                    'matricule' => $tache->etudiant->matricule ?? null,
+                    'nom' => ($tache->etudiant->user && $tache->etudiant->user->name) ? $tache->etudiant->user->name : null,
+                    'email' => ($tache->etudiant->user && $tache->etudiant->user->email) ? $tache->etudiant->user->email : null,
+                    'niveau' => $tache->etudiant->niveau ?? null,
+                    'filiere' => $tache->etudiant->filiere ?? null,
+                ] : null,
+                'groupe' => $groupe ? [
+                    'id' => $groupe->id,
+                    'numero_groupe' => $groupe->numero_groupe,
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'taches' => $taches,
+        ]);
+    }
 }
 
