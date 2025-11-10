@@ -10,6 +10,7 @@ use App\Models\Prof;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ProjetController extends Controller
 {
@@ -1215,6 +1216,8 @@ class ProjetController extends Controller
                         'nom' => $et->user->name ?? null,
                         'matricule' => $et->matricule ?? null,
                         'email' => $et->user->email ?? null,
+                        'avatar' => $et->avatar ?? null,
+                        'avatar_url' => $et->avatar ? asset('storage/' . $et->avatar) : null,
                         'isCurrentUser' => $et->id === $etudiant->id,
                     ];
                 })
