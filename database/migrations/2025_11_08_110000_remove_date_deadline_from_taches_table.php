@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('taches', function (Blueprint $table) {
-            $table->dropColumn('date_deadline');
-        });
+        if (Schema::hasColumn('taches', 'date_deadline')) {
+            Schema::table('taches', function (Blueprint $table) {
+                $table->dropColumn('date_deadline');
+            });
+        }
     }
 
     /**
@@ -26,4 +28,3 @@ return new class extends Migration
         });
     }
 };
-
